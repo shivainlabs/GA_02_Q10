@@ -19,12 +19,16 @@ def is_origin_allowed(origin: str) -> bool:
         return False
     origin_lower = origin.lower()
     
-    # 1. Allow our assigned CORS origin
+    # A. Allow our assigned CORS origin
     if origin_lower == ASSIGNED_CORS_ORIGIN.lower():
         return True
         
-    # 2. Allow the exam page origin (which can be on iitm.ac.in, github.io, or local testing)
-    if "iitm.ac.in" in origin_lower or "github.io" in origin_lower or "github" in origin_lower or "localhost" in origin_lower:
+    # B. Allow the exam page origin (covers IITM portal, local file, Live Server, codespaces, Netlify, Vercel)
+    allowed_keywords = [
+        "iitm.ac.in", "iitm", "github.io", "localhost", "127.0.0.1", 
+        "null", "netlify", "vercel", "githubpreview.dev", "gitpod.io"
+    ]
+    if any(keyword in origin_lower for keyword in allowed_keywords):
         return True
         
     return False
@@ -41,17 +45,14 @@ async def middleware_stack(request: Request, call_next):
 
     # --- LAYER 2: CORS Preflight (OPTIONS Check) ---
     if request.method == "OPTIONS":
+        response = Response(status_code=200)
         origin = request.headers.get("origin")
         if is_origin_allowed(origin):
-            response = Response(status_code=200)
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Request-ID, X-Client-Id"
             response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
             response.headers["Access-Control-Allow-Credentials"] = "true"
-            return response
-        else:
-            # Block origin (do not return any Access-Control-Allow-Origin header)
-            return Response(status_code=status.HTTP_400_BAD_REQUEST)
+        return response
 
     # --- LAYER 3: Rate Limiting ---
     client_id = request.headers.get("X-Client-Id")
