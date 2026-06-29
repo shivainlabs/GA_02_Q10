@@ -23,8 +23,8 @@ def is_origin_allowed(origin: str) -> bool:
     if origin_lower == ASSIGNED_CORS_ORIGIN.lower():
         return True
         
-    # 2. Allow the exam page origin (which is on github.io or local environment)
-    if "github.io" in origin_lower or "github" in origin_lower or "localhost" in origin_lower:
+    # 2. Allow the exam page origin (which can be on iitm.ac.in, github.io, or local testing)
+    if "iitm.ac.in" in origin_lower or "github.io" in origin_lower or "github" in origin_lower or "localhost" in origin_lower:
         return True
         
     return False
@@ -107,6 +107,6 @@ async def middleware_stack(request: Request, call_next):
 @app.get("/ping")
 def ping(request: Request):
     return {
-        "email": "24f2006706@ds.study.iitm.ac.in", # Your registered email
+        "email": "24f2006706@ds.study.iitm.ac.in",  # Your registered email
         "request_id": request.state.request_id
     }
