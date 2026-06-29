@@ -37,16 +37,17 @@ def is_origin_allowed(origin: str) -> bool:
 # 2. Composed Middleware Stack
 @app.middleware("http")
 async def middleware_stack(request: Request, call_next):
+    # 🔴 Print logs to Render console for debugging
+    origin = request.headers.get("origin")
+    print(f"LOG: {request.method} {request.url.path} | Origin: {origin} | Client: {request.headers.get('X-Client-Id')}")
+
     # --- LAYER 1: Request Context (Start) ---
-    # Read client request ID or generate a fresh UUID
     request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
-    # Save the request ID to the request state so the endpoint can read it
     request.state.request_id = request_id
 
     # --- LAYER 2: CORS Preflight (OPTIONS Check) ---
     if request.method == "OPTIONS":
         response = Response(status_code=200)
-        origin = request.headers.get("origin")
         if is_origin_allowed(origin):
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Request-ID, X-Client-Id"
@@ -59,23 +60,17 @@ async def middleware_stack(request: Request, call_next):
     if client_id:
         now = time.time()
         
-        # Initialize client bucket
         if client_id not in RATE_LIMIT_STORE:
             RATE_LIMIT_STORE[client_id] = []
             
-        # Keep only request timestamps in the last 10 seconds
         RATE_LIMIT_STORE[client_id] = [t for t in RATE_LIMIT_STORE[client_id] if now - t <= 10]
         
-        # If bucket limit is exceeded (B = 8 requests)
+        # If rate limit exceeded (B = 8 requests)
         if len(RATE_LIMIT_STORE[client_id]) >= RATE_LIMIT_BUCKET:
-            # Return HTTP 429
             response = JSONResponse(
                 status_code=429,
                 content={"error": "Too Many Requests. Rate limit exceeded."}
             )
-            
-            # Attach CORS headers to the 429 response so the browser doesn't block it
-            origin = request.headers.get("origin")
             if is_origin_allowed(origin):
                 response.headers["Access-Control-Allow-Origin"] = origin
                 response.headers["Access-Control-Allow-Credentials"] = "true"
@@ -84,18 +79,13 @@ async def middleware_stack(request: Request, call_next):
             response.headers["X-Request-ID"] = request_id
             return response
             
-        # Record this request timestamp
         RATE_LIMIT_STORE[client_id].append(now)
 
     # --- Process the Request ---
     response = await call_next(request)
 
     # --- CORS & Request Context (End) ---
-    # Always set the X-Request-ID header on the response
     response.headers["X-Request-ID"] = request_id
-    
-    # Attach CORS header if the origin is allowed
-    origin = request.headers.get("origin")
     if is_origin_allowed(origin):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
@@ -108,6 +98,6 @@ async def middleware_stack(request: Request, call_next):
 @app.get("/ping")
 def ping(request: Request):
     return {
-        "email": "24f2006706@ds.study.iitm.ac.in",  # Your registered email
+        "email": "24f2006706@ds.study.iitm.ac.in",
         "request_id": request.state.request_id
     }
