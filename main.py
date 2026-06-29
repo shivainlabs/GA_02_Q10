@@ -23,10 +23,12 @@ def is_origin_allowed(origin: str) -> bool:
     if origin_lower == ASSIGNED_CORS_ORIGIN.lower():
         return True
         
-    # B. Allow the exam page origin (covers IITM portal, local file, Live Server, codespaces, Netlify, Vercel)
+    # B. Allow the exam page origin (covers IITM portal, CodeTantra, workers.dev, local files)
     allowed_keywords = [
         "iitm.ac.in", "iitm", "github.io", "localhost", "127.0.0.1", 
-        "null", "netlify", "vercel", "githubpreview.dev", "gitpod.io"
+        "null", "netlify", "vercel", "githubpreview.dev", "gitpod.io",
+        "codetantra.com", "codetantra", "swayam", "nptel",
+        "workers.dev"  # Added this domain
     ]
     if any(keyword in origin_lower for keyword in allowed_keywords):
         return True
@@ -48,11 +50,20 @@ async def middleware_stack(request: Request, call_next):
     # --- LAYER 2: CORS Preflight (OPTIONS Check) ---
     if request.method == "OPTIONS":
         response = Response(status_code=200)
+        response.headers["X-Request-ID"] = request_id
         if is_origin_allowed(origin):
             response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Request-ID, X-Client-Id"
-            response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
-            response.headers["Access-Control-Allow-Credentials"] = "true"
+            
+            # Echo back whatever headers the browser requested
+            req_headers = request.headers.get("Access-Control-Request-Headers")
+            response.headers["Access-Control-Allow-Headers"] = req_headers if req_headers else "Content-Type, X-Request-ID, X-Client-Id"
+            
+            # Echo back the requested method
+            req_method = request.headers.get("Access-Control-Request-Method")
+            response.headers["Access-Control-Allow-Methods"] = req_method if req_method else "GET, OPTIONS"
+            
+            if origin != "null":
+                response.headers["Access-Control-Allow-Credentials"] = "true"
         return response
 
     # --- LAYER 3: Rate Limiting ---
@@ -60,36 +71,47 @@ async def middleware_stack(request: Request, call_next):
     if client_id:
         now = time.time()
         
+        # Initialize client bucket
         if client_id not in RATE_LIMIT_STORE:
             RATE_LIMIT_STORE[client_id] = []
             
+        # Keep only request timestamps in the last 10 seconds
         RATE_LIMIT_STORE[client_id] = [t for t in RATE_LIMIT_STORE[client_id] if now - t <= 10]
         
         # If rate limit exceeded (B = 8 requests)
         if len(RATE_LIMIT_STORE[client_id]) >= RATE_LIMIT_BUCKET:
+            # Return HTTP 429
             response = JSONResponse(
                 status_code=429,
                 content={"error": "Too Many Requests. Rate limit exceeded."}
             )
+            
+            # Attach CORS headers to the 429 response so the browser doesn't block it
             if is_origin_allowed(origin):
                 response.headers["Access-Control-Allow-Origin"] = origin
-                response.headers["Access-Control-Allow-Credentials"] = "true"
                 response.headers["Access-Control-Expose-Headers"] = "X-Request-ID"
+                if origin != "null":
+                    response.headers["Access-Control-Allow-Credentials"] = "true"
                 
             response.headers["X-Request-ID"] = request_id
             return response
             
+        # Record this request timestamp
         RATE_LIMIT_STORE[client_id].append(now)
 
     # --- Process the Request ---
     response = await call_next(request)
 
     # --- CORS & Request Context (End) ---
+    # Always set the X-Request-ID header on the response
     response.headers["X-Request-ID"] = request_id
+    
+    # Attach CORS header if the origin is allowed
     if is_origin_allowed(origin):
         response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Access-Control-Expose-Headers"] = "X-Request-ID"
+        if origin != "null":
+            response.headers["Access-Control-Allow-Credentials"] = "true"
 
     return response
 
@@ -98,6 +120,6 @@ async def middleware_stack(request: Request, call_next):
 @app.get("/ping")
 def ping(request: Request):
     return {
-        "email": "24f2006706@ds.study.iitm.ac.in",
+        "email": "24f2006706@ds.study.iitm.ac.in",  # Your registered email
         "request_id": request.state.request_id
     }
